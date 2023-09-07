@@ -70,6 +70,8 @@ app['memory']['wazeer'] = LongTermMemory('wazeer')
 # direct prompt based interaction for each query
 
 mostRecentFinalTranscript = dict()
+mostRecentIntermediateTranscript = dict()
+maxIntermediateRateMs = 500
 fiveSecondsInMs = 5000
 async def chat_handler(request):
     startTime = time.time()
@@ -96,16 +98,20 @@ async def chat_handler(request):
         #    long-term memory is based on final transcripts
         app['memory'][userId].add_memories(decayed_memories)
 
-    # Save to database
-    # & Debounce extraneous intermediate transcripts by only 
-    # considering those that come after 5 seconds of a final transcript
-    if userId not in mostRecentFinalTranscript:
+    # Init these values
+    if userId not in mostRecentFinalTranscript or userId not in mostRecentIntermediateTranscript:
         mostRecentFinalTranscript[userId] = 0
-
-    if isFinal:
-        mostRecentFinalTranscript[userId] = timestamp
-
-    if isFinal or (timestamp - mostRecentFinalTranscript[userId] < fiveSecondsInMs):
+        mostRecentIntermediateTranscript[userId] = 0
+    
+    # Accept finals or rate-limited intermediates
+    if isFinal or (timestamp - mostRecentIntermediateTranscript[userId] > maxIntermediateRateMs):
+        
+        # Only update these values on a successful (not debounced) run
+        if isFinal:
+            mostRecentFinalTranscript[userId] = timestamp
+        else:
+            mostRecentIntermediateTranscript[userId] = timestamp
+        
         print('\n=== CHAT_HANDLER ===\n{}: {}, {}, {}'.format("FINAL" if isFinal else "INTERMEDIATE", text, timestamp, userId))
         startSaveDbTime = time.time()
         dbHandler.saveTranscriptForUser(userId=userId, text=text, timestamp=timestamp, isFinal=isFinal)
@@ -114,7 +120,7 @@ async def chat_handler(request):
 
         # Also do WearLLM things
         # log so we can retain convo memory for later
-        with open(f'{userId}.log', 'a') as f:
+        with open(f'./logs/{userId}.log', 'a') as f:
             f.write(str({'text': text, 'timestamp': timestamp}) + '\n')
 
         # agent response
@@ -122,7 +128,7 @@ async def chat_handler(request):
         try:
             jarvis_mode = text.lower().find("jarvis") != -1
             if jarvis_mode:
-                with open(f'{userId}_commands.log', 'a') as f:
+                with open(f'./logs/{userId}_commands.log', 'a') as f:
                     f.write(str({'text': text, 'timestamp': timestamp}) + '\n')
 
                 answer = await answer_question_to_jarvis(text, userId)
@@ -130,7 +136,7 @@ async def chat_handler(request):
 
             james_mode = text.lower().find("james") != -1
             if james_mode:
-                with open(f'{userId}_commands.log', 'a') as f:
+                with open(f'./logs/{userId}_commands.log', 'a') as f:
                     f.write(str({'text': text, 'timestamp': timestamp}) + '\n')
 
                 answer = await agent_james(text, userId)
@@ -170,7 +176,7 @@ async def button_handler(request):
 
     if button_activity : #True if push down, false if button release
         #save event
-        with open(f'{userId}_events.log', 'a') as f:
+        with open(f'./logs/{userId}_events.log', 'a') as f:
             f.write(str({'text': "BUTTON_DOWN", 'timestamp': timestamp}) + '\n')
 
         #get recent transcripts (last n seconds of speech)

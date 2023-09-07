@@ -72,13 +72,40 @@ class DatabaseHandler:
 
         return output.strip()
 
+    # Stringify ALL transcripts regardless of intermediate/final
+    # TODO: consider combining intermediates if/when they overlap
+    def stringifyTranscriptsBasic(self, transcriptList):
+        output = ""
+        
+        ### Fancy, ignore for now
+        # prev = " " # Cannot be empty string
+        # for t in transcriptList:
+        #     new = t['text']
+        #     output = output + (' '.join(new.split(prev))) + ' \n'
+        #     prev = t['text']
+
+        for t in transcriptList:
+            output = output + t['text'] + ' \n'
+        
+        return output.strip()
+
     def saveTranscriptForUser(self, userId, text, timestamp, isFinal):
         transcript = {"userId": userId, "text": text,
                       "timestamp": timestamp, "isFinal": isFinal}
         self.createUserIfNotExists(userId)
 
+        
+        recents = self.getRecentTranscriptsForUser(userId)
+        # If it's an intermediate (and we already have an intermediate) remove the old intermediate
+        if not isFinal:
+            for r in recents:
+                if not r['isFinal']:
+                    filter = {"userId": userId, "transcripts.isFinal": False}
+                    update = {"$set": {"transcripts.$": transcript}}
+                    self.userCollection.update_one(filter=filter, update=update)
+
         # Remove old transcripts if there are too many, must come before the update_one call
-        if len(self.getRecentTranscriptsForUser(userId)) > self.maxTranscriptsPerUser:
+        if len(recents) > self.maxTranscriptsPerUser:
             self.popOldestTranscriptForUser(userId)
 
         filter = {"userId": userId}
@@ -95,7 +122,7 @@ class DatabaseHandler:
     def getRecentTranscriptsForUserAsString(self, userId, deleteAfter=False):
         transcripts = self.getRecentTranscriptsForUser(
             userId, deleteAfter=deleteAfter)
-        return self.stringifyTranscripts(transcriptList=transcripts)
+        return self.stringifyTranscriptsBasic(transcriptList=transcripts)
 
     def popOldestTranscriptForUser(self, userId):
         filter = {"userId": userId}

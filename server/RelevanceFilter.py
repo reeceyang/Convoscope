@@ -4,7 +4,6 @@ class RelevanceFilter:
         self.blah = "1"
 
     def shouldRunForText(self, userId, text):
-        return True
         shouldRun = True
 
         # Required as per: https://tinyurl.com/obscurePythonErrors
